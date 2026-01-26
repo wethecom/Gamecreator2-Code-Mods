@@ -1,9 +1,9 @@
 using GameCreator.Editor.VisualScripting;
 using UnityEditor;
 using UnityEngine;
-using YourNamespace.Runtime;
+using Wethecom.Runtime;
 
-namespace YourNamespace.Editor
+namespace Wethecom.Editor
 {
     [CustomEditor(typeof(NetworkedTrigger))]
     public class NetworkedTriggerEditor : TriggerEditor

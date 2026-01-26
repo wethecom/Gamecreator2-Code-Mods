@@ -6,9 +6,9 @@ using GameCreator.Runtime.VisualScripting;
 using UnityEngine;
 using Event = GameCreator.Runtime.VisualScripting.Event;
 
-namespace YourNamespace.Runtime
+namespace Wethecom.Runtime
 {
-    [AddComponentMenu("Your Namespace/Networked Trigger")]
+    [AddComponentMenu("Wethecom/Networked Trigger")]
     public class NetworkedTrigger : Trigger
     {
         // Fish-Net network component reference
