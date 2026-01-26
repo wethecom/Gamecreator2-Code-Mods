@@ -1,43 +1,92 @@
 using System;
-using FishNet.Object;
 using GameCreator.Runtime.Common;
+using GameCreator.Runtime.VisualScripting;
 using UnityEngine;
+using Event = GameCreator.Runtime.VisualScripting.Event;
 
 namespace Wethecom.Runtime
 {
     /// <summary>
-    /// Handles Fish-Net networking for trigger synchronization
+    /// TriggerRunner with Fish-Net networking
     /// </summary>
     [AddComponentMenu("")]
-    public class NetworkTriggerManager : NetworkBehaviour
+    public class NetworkedTrigger : Trigger
     {
-        public event Action<Args> OnNetworkTrigger;
+        private NetworkTriggerManager _networkManager;
+        private Action<Args> _onTriggerRun;
+        private Action<Args> _onTriggerStopped;
 
-        [ServerRpc(RequireOwnership = false)]
-        public void RequestTriggerServerRpc(int targetInstanceId)
+        public void Setup(Event triggerEvent, Action<Args> onTriggerRun, Action<Args> onTriggerStopped)
         {
-            BroadcastTriggerObserversRpc(targetInstanceId);
-        }
-
-        [ObserversRpc]
-        private void BroadcastTriggerObserversRpc(int targetInstanceId)
-        {
-            GameObject target = null;
-            if (targetInstanceId != 0)
+            hideFlags = HideFlags.HideInInspector | HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor | HideFlags.HideInHierarchy;
+            enabled = false;
+            
+            m_TriggerEvent = triggerEvent;
+            _onTriggerRun = onTriggerRun;
+            _onTriggerStopped = onTriggerStopped;
+            
+            // Setup network manager
+            _networkManager = GetComponent<NetworkTriggerManager>();
+            if (_networkManager == null)
             {
-                var allObjects = FindObjectsOfType<GameObject>();
-                foreach (var obj in allObjects)
-                {
-                    if (obj.GetInstanceID() == targetInstanceId)
-                    {
-                        target = obj;
-                        break;
-                    }
-                }
+                _networkManager = gameObject.AddComponent<NetworkTriggerManager>();
             }
             
-            var args = new Args(target ?? gameObject);
-            OnNetworkTrigger?.Invoke(args);
+            Awake();
+
+            EventBeforeExecute -= OnRun;
+            EventBeforeExecute += OnRun;
+            
+            _networkManager.OnNetworkTrigger -= OnNetworkTrigger;
+            _networkManager.OnNetworkTrigger += OnNetworkTrigger;
+            
+            enabled = true;
+        }
+
+        private void OnRun()
+        {
+            var args = base.m_Args;
+            
+            // If networked and spawned, sync it
+            if (_networkManager != null && _networkManager.IsSpawned)
+            {
+                if (_networkManager.IsServerInitialized)
+                {
+                    // Server: execute and broadcast
+                    _onTriggerRun(args);
+                    _onTriggerStopped(args);
+                    _networkManager.BroadcastTriggerObserversRpc(args.Target != null ? args.Target.GetInstanceID() : 0);
+                }
+                else
+                {
+                    // Client: request from server
+                    _networkManager.RequestTriggerServerRpc(args.Target != null ? args.Target.GetInstanceID() : 0);
+                }
+            }
+            else
+            {
+                // Not networked
+                _onTriggerRun(args);
+                _onTriggerStopped(args);
+            }
+        }
+
+        private void OnNetworkTrigger(Args args)
+        {
+            _onTriggerRun(args);
+            _onTriggerStopped(args);
+        }
+
+        protected override void OnDestroy()
+        {
+            EventBeforeExecute -= OnRun;
+            
+            if (_networkManager != null)
+            {
+                _networkManager.OnNetworkTrigger -= OnNetworkTrigger;
+            }
+            
+            base.OnDestroy();
         }
     }
 }
