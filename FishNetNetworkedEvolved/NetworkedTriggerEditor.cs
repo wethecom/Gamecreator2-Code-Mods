@@ -12,9 +12,9 @@ namespace Wethecom.Editor
         private SerializedProperty _allowClientTriggers;
         private SerializedProperty _syncToLateJoiners;
         
-        protected override void OnEnable()
+        protected void OnEnable()
         {
-            base.OnEnable();
+            
             _allowClientTriggers = serializedObject.FindProperty("_allowClientTriggers");
             _syncToLateJoiners = serializedObject.FindProperty("_syncToLateJoiners");
         }

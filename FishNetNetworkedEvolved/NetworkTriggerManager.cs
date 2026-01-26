@@ -20,7 +20,7 @@ namespace Wethecom.Runtime
         }
 
         [ObserversRpc]
-        private void BroadcastTriggerObserversRpc(int targetInstanceId)
+        public void BroadcastTriggerObserversRpc(int targetInstanceId)
         {
             GameObject target = null;
             if (targetInstanceId != 0)

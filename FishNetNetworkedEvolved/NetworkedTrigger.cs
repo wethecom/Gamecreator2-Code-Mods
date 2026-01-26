@@ -12,9 +12,9 @@ namespace Wethecom.Runtime
     [AddComponentMenu("")]
     public class NetworkedTrigger : Trigger
     {
-        private NetworkTriggerManager _networkManager;
-        private Action<Args> _onTriggerRun;
-        private Action<Args> _onTriggerStopped;
+       public NetworkTriggerManager _networkManager;
+        public Action<Args> _onTriggerRun;
+        public Action<Args> _onTriggerStopped;
 
         public void Setup(Event triggerEvent, Action<Args> onTriggerRun, Action<Args> onTriggerStopped)
         {
