@@ -2,11 +2,10 @@ using System;
 using System.Threading.Tasks;
 using UnityEngine;
 using GameCreator.Runtime.Common;
-using FishNet.Object;
 
 namespace GameCreator.Runtime.VisualScripting
 {
-    public abstract class BaseActions : NetworkBehaviour
+    public abstract class BaseActions : MonoBehaviour
     {
         // MEMBERS: -------------------------------------------------------------------------------
 

@@ -30,6 +30,9 @@ namespace GameCreator.Runtime.VisualScripting
         protected Event m_TriggerEvent = new EventOnStart();
         
         [Header("Network Settings")]
+        [SerializeField, Tooltip("Enable network synchronization for this trigger")]
+        private bool m_EnableNetworking = false;
+        
         [SerializeField, Tooltip("Synchronize trigger execution across all clients")]
         private bool m_SyncExecution = true;
         
@@ -47,10 +50,20 @@ namespace GameCreator.Runtime.VisualScripting
         [NonSerialized] private IInteractive m_Interactive;
         
         [NonSerialized] private bool m_IsNetworkExecution;
+        
+        // Cached NetworkObject reference
+        [NonSerialized] private NetworkObject m_NetworkObject;
+        [NonSerialized] private bool m_NetworkObjectCached;
 
         // PROPERTIES: ----------------------------------------------------------------------------
 
         public bool IsExecuting { get; private set; }
+        
+        public bool EnableNetworking
+        {
+            get => m_EnableNetworking;
+            set => m_EnableNetworking = value;
+        }
         
         public bool SyncExecution
         {
@@ -64,7 +77,33 @@ namespace GameCreator.Runtime.VisualScripting
             set => m_ServerAuthoritative = value;
         }
         
-        private bool ShouldSync => m_SyncExecution && IsSpawned && !m_IsNetworkExecution;
+        /// <summary>
+        /// Returns the cached NetworkObject component, or null if not present
+        /// </summary>
+        private NetworkObject CachedNetworkObject
+        {
+            get
+            {
+                if (!m_NetworkObjectCached)
+                {
+                    m_NetworkObject = GetComponent<NetworkObject>();
+                    m_NetworkObjectCached = true;
+                }
+                return m_NetworkObject;
+            }
+        }
+        
+        /// <summary>
+        /// Returns true if networking is enabled, NetworkObject exists, and object is spawned
+        /// </summary>
+        private bool IsNetworkReady => m_EnableNetworking && 
+                                        CachedNetworkObject != null && 
+                                        CachedNetworkObject.IsSpawned;
+        
+        /// <summary>
+        /// Returns true if we should sync this execution across the network
+        /// </summary>
+        private bool ShouldSync => m_SyncExecution && IsNetworkReady && !m_IsNetworkExecution;
 
         // EVENTS: --------------------------------------------------------------------------------
 
@@ -97,7 +136,7 @@ namespace GameCreator.Runtime.VisualScripting
                 
                 if (m_ServerAuthoritative)
                 {
-                    if (IsServerInitialized)
+                    if (CachedNetworkObject.IsServerInitialized)
                     {
                         ExecuteOnClientsRpc(targetId);
                     }
@@ -108,7 +147,7 @@ namespace GameCreator.Runtime.VisualScripting
                 }
                 else
                 {
-                    if (IsServerInitialized)
+                    if (CachedNetworkObject.IsServerInitialized)
                     {
                         ExecuteOnClientsRpc(targetId);
                     }
@@ -163,7 +202,7 @@ namespace GameCreator.Runtime.VisualScripting
         {
             if (ShouldSync)
             {
-                if (IsServerInitialized)
+                if (CachedNetworkObject.IsServerInitialized)
                 {
                     CancelOnClientsRpc();
                 }
@@ -180,6 +219,16 @@ namespace GameCreator.Runtime.VisualScripting
         private void CancelLocalInternal()
         {
             this.StopExecInstructions();
+        }
+        
+        /// <summary>
+        /// Clears the cached NetworkObject reference. Call this if you add/remove
+        /// NetworkObject at runtime.
+        /// </summary>
+        public void RefreshNetworkObjectCache()
+        {
+            m_NetworkObjectCached = false;
+            m_NetworkObject = null;
         }
 
         ///////////////////////////////////////////////////////////////////////////////////////////
@@ -198,18 +247,20 @@ namespace GameCreator.Runtime.VisualScripting
         private GameObject ResolveNetworkObject(int objectId)
         {
             if (objectId == NO_TARGET) return null;
-            if (NetworkManager == null) return null;
+            if (CachedNetworkObject == null || CachedNetworkObject.NetworkManager == null) return null;
             
-            if (IsServerInitialized)
+            var networkManager = CachedNetworkObject.NetworkManager;
+            
+            if (CachedNetworkObject.IsServerInitialized)
             {
-                if (NetworkManager.ServerManager.Objects.Spawned.TryGetValue(objectId, out NetworkObject nob))
+                if (networkManager.ServerManager.Objects.Spawned.TryGetValue(objectId, out NetworkObject nob))
                 {
                     return nob.gameObject;
                 }
             }
-            else if (IsClientInitialized)
+            else if (CachedNetworkObject.IsClientInitialized)
             {
-                if (NetworkManager.ClientManager.Objects.Spawned.TryGetValue(objectId, out NetworkObject nob))
+                if (networkManager.ClientManager.Objects.Spawned.TryGetValue(objectId, out NetworkObject nob))
                 {
                     return nob.gameObject;
                 }
@@ -220,6 +271,8 @@ namespace GameCreator.Runtime.VisualScripting
 
         ///////////////////////////////////////////////////////////////////////////////////////////
         // NETWORK RPCs: --------------------------------------------------------------------------
+        // Note: These methods will only work if a NetworkObject component is present
+        // and the object has been spawned on the network.
         
         [ServerRpc(RequireOwnership = false)]
         private void RequestExecuteServerRpc(int targetObjectId, NetworkConnection sender = null)
@@ -246,7 +299,7 @@ namespace GameCreator.Runtime.VisualScripting
             CancelOnClientsRpc();
         }
         
-        [ObserversRpc(BufferLast = false, RunLocally = true)]
+        [ObserversRpc(RunLocally = true)]
         private void CancelOnClientsRpc()
         {
             m_IsNetworkExecution = true;
@@ -255,21 +308,22 @@ namespace GameCreator.Runtime.VisualScripting
         }
 
         ///////////////////////////////////////////////////////////////////////////////////////////
-        // CALLBACKS: -----------------------------------------------------------------------------
-
-        protected void Awake()
+        // INITIALIZERS: --------------------------------------------------------------------------
+        
+        protected virtual void Awake()
         {
-            this.InitializeEvents();
-            this.m_Args = new Args(this);
+            this.m_Args = new Args(this.gameObject);
             this.m_TriggerEvent?.OnAwake(this);
         }
-
-        protected void Start()
+        
+        protected virtual void Start()
         {
             this.m_TriggerEvent?.OnStart(this);
         }
 
-        protected void OnEnable()
+        // BEHAVIOR: ------------------------------------------------------------------------------
+        
+        protected virtual void OnEnable()
         {
             this.m_TriggerEvent?.OnEnable(this);
         }
@@ -277,52 +331,44 @@ namespace GameCreator.Runtime.VisualScripting
         protected override void OnDisable()
         {
             base.OnDisable();
-
-            this.CancelLocalInternal();
             this.m_TriggerEvent?.OnDisable(this);
         }
 
-        protected override void OnDestroy()
-        {
-            this.m_TriggerEvent?.OnDestroy(this);
-            base.OnDestroy();
-        }
-
-        protected void OnBecameVisible()
-        {
-            this.m_TriggerEvent?.OnBecameVisible(this);
-        }
-
-        protected void OnBecameInvisible()
-        {
-            this.m_TriggerEvent?.OnBecameInvisible(this);
-        }
-
-        protected void Update()
+        protected virtual void Update()
         {
             this.m_TriggerEvent?.OnUpdate(this);
         }
-
-        protected void LateUpdate()
-        {
-            this.m_TriggerEvent?.OnLateUpdate(this);
-        }
         
-        protected void FixedUpdate()
+        protected virtual void FixedUpdate()
         {
             this.m_TriggerEvent?.OnFixedUpdate(this);
         }
 
-        protected void OnApplicationFocus(bool f)
+        protected virtual void LateUpdate()
         {
-            this.m_TriggerEvent?.OnApplicationFocus(this, f);
+            this.m_TriggerEvent?.OnLateUpdate(this);
         }
-
-        protected void OnApplicationPause(bool s)
+        
+        protected void OnBecameVisible()
         {
-            this.m_TriggerEvent?.OnApplicationPause(this, s);
+            this.m_TriggerEvent?.OnBecameVisible(this);
         }
-
+        
+        protected void OnBecameInvisible()
+        {
+            this.m_TriggerEvent?.OnBecameInvisible(this);
+        }
+        
+        protected void OnApplicationFocus(bool hasFocus)
+        {
+            this.m_TriggerEvent?.OnApplicationFocus(this, hasFocus);
+        }
+        
+        protected void OnApplicationPause(bool pauseStatus)
+        {
+            this.m_TriggerEvent?.OnApplicationPause(this, pauseStatus);
+        }
+        
         protected void OnApplicationQuit()
         {
             this.m_TriggerEvent?.OnApplicationQuit(this);

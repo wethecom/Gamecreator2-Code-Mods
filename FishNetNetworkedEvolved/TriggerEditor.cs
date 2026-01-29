@@ -15,17 +15,19 @@ namespace GameCreator.Editor.VisualScripting
         private const string ERR_NAME = "GC-Trigger-Error-Message";
         private const string ERR_COLLIDER = "{0} requires a Collider or Collider2D in order to work";
         private const string ERR_COMPONENT = "{0} requires a {1} component in order to work";
-        private const string ERR_NETWORK_OBJECT = "Trigger requires a NetworkObject component for network synchronization to work";
+        private const string ERR_NETWORK_OBJECT = "Network sync requires a NetworkObject component to work";
         
         // MEMBERS: -------------------------------------------------------------------------------
 
         private VisualElement m_Head;
         private VisualElement m_NetworkSection;
+        private VisualElement m_NetworkOptions;
         private VisualElement m_Body;
         
         private Trigger m_Trigger;
 
         private SerializedProperty m_TriggerEvent;
+        private SerializedProperty m_EnableNetworking;
         private SerializedProperty m_SyncExecution;
         private SerializedProperty m_ServerAuthoritative;
         
@@ -41,6 +43,7 @@ namespace GameCreator.Editor.VisualScripting
             VisualElement root = new VisualElement();
             this.m_Head = new VisualElement();
             this.m_NetworkSection = new VisualElement();
+            this.m_NetworkOptions = new VisualElement();
             this.m_Body = new VisualElement();
             
             root.Add(this.m_Head);
@@ -69,27 +72,33 @@ namespace GameCreator.Editor.VisualScripting
         
         private void CreateNetworkSection()
         {
+            this.m_NetworkSection.Clear();
+            this.m_NetworkOptions.Clear();
+            
             // Network header
             Label networkHeader = new Label("Network Settings");
             networkHeader.style.unityFontStyleAndWeight = FontStyle.Bold;
-            networkHeader.style.marginTop = 5;
+            networkHeader.style.marginTop = 10;
             networkHeader.style.marginBottom = 5;
             this.m_NetworkSection.Add(networkHeader);
             
-            // Network properties
-            this.m_SyncExecution = this.serializedObject.FindProperty("m_SyncExecution");
-            this.m_ServerAuthoritative = this.serializedObject.FindProperty("m_ServerAuthoritative");
+            // Enable Networking toggle (always visible)
+            this.m_EnableNetworking = this.serializedObject.FindProperty("m_EnableNetworking");
+            PropertyField enableField = new PropertyField(this.m_EnableNetworking, "Enable Networking");
+            enableField.tooltip = "Enable network synchronization for this trigger";
+            this.m_NetworkSection.Add(enableField);
             
-            PropertyField syncField = new PropertyField(this.m_SyncExecution);
-            syncField.tooltip = "When enabled, trigger execution is synchronized across all connected clients";
-            this.m_NetworkSection.Add(syncField);
+            // Container for network options (shown/hidden based on toggle)
+            this.m_NetworkSection.Add(this.m_NetworkOptions);
             
-            PropertyField authField = new PropertyField(this.m_ServerAuthoritative);
-            authField.tooltip = "When enabled, only the server/host can initiate trigger execution";
-            this.m_NetworkSection.Add(authField);
+            // Register callback to show/hide network options
+            enableField.RegisterValueChangeCallback(evt =>
+            {
+                this.RefreshNetworkOptions();
+            });
             
-            // Check for NetworkObject
-            this.CheckNetworkObject();
+            // Initial refresh
+            this.RefreshNetworkOptions();
             
             // Separator
             VisualElement separator = new VisualElement();
@@ -100,34 +109,81 @@ namespace GameCreator.Editor.VisualScripting
             this.m_NetworkSection.Add(separator);
         }
         
+        private void RefreshNetworkOptions()
+        {
+            this.m_NetworkOptions.Clear();
+            
+            if (this.m_EnableNetworking == null) return;
+            
+            // Only show options if networking is enabled
+            if (!this.m_EnableNetworking.boolValue)
+            {
+                // Show a hint when disabled
+                HelpBox disabledHint = new HelpBox(
+                    "Enable networking to synchronize trigger execution across clients.", 
+                    HelpBoxMessageType.None
+                );
+                disabledHint.style.marginTop = 5;
+                disabledHint.style.marginBottom = 5;
+                this.m_NetworkOptions.Add(disabledHint);
+                return;
+            }
+            
+            // Network is enabled - show options
+            this.m_NetworkOptions.style.marginLeft = 15;
+            this.m_NetworkOptions.style.marginTop = 5;
+            
+            // Network properties
+            this.m_SyncExecution = this.serializedObject.FindProperty("m_SyncExecution");
+            this.m_ServerAuthoritative = this.serializedObject.FindProperty("m_ServerAuthoritative");
+            
+            PropertyField syncField = new PropertyField(this.m_SyncExecution, "Sync Execution");
+            syncField.tooltip = "When enabled, trigger execution is synchronized across all connected clients";
+            this.m_NetworkOptions.Add(syncField);
+            
+            PropertyField authField = new PropertyField(this.m_ServerAuthoritative, "Server Authoritative");
+            authField.tooltip = "When enabled, only the server/host can initiate trigger execution";
+            this.m_NetworkOptions.Add(authField);
+            
+            // Check for NetworkObject and show appropriate message/button
+            this.CheckNetworkObject();
+        }
+        
         private void CheckNetworkObject()
         {
             if (this.m_Trigger == null) return;
             
             NetworkObject networkObject = this.m_Trigger.GetComponent<NetworkObject>();
+            
             if (networkObject == null)
             {
+                // Warning - NetworkObject missing
                 HelpBox warningBox = new HelpBox(ERR_NETWORK_OBJECT, HelpBoxMessageType.Warning);
-                warningBox.style.marginTop = 5;
+                warningBox.style.marginTop = 10;
                 warningBox.style.marginBottom = 5;
-                this.m_NetworkSection.Add(warningBox);
+                this.m_NetworkOptions.Add(warningBox);
                 
+                // Button to add NetworkObject
                 Button addButton = new Button(() =>
                 {
                     Undo.AddComponent<NetworkObject>(this.m_Trigger.gameObject);
-                    this.m_NetworkSection.Clear();
-                    this.CreateNetworkSection();
+                    // Refresh the network options to update the UI
+                    this.RefreshNetworkOptions();
                 });
                 addButton.text = "Add NetworkObject Component";
                 addButton.style.marginBottom = 5;
-                this.m_NetworkSection.Add(addButton);
+                this.m_NetworkOptions.Add(addButton);
             }
             else
             {
-                HelpBox infoBox = new HelpBox("NetworkObject found. Network sync is ready.", HelpBoxMessageType.Info);
-                infoBox.style.marginTop = 5;
+                // Success - NetworkObject found
+                HelpBox infoBox = new HelpBox(
+                    "NetworkObject found. Network sync is ready.", 
+                    HelpBoxMessageType.Info
+                );
+                infoBox.style.marginTop = 10;
                 infoBox.style.marginBottom = 5;
-                this.m_NetworkSection.Add(infoBox);
+                this.m_NetworkOptions.Add(infoBox);
             }
         }
 
@@ -180,7 +236,8 @@ namespace GameCreator.Editor.VisualScripting
         {
             GameObject instance = new GameObject("Trigger");
             instance.AddComponent<Trigger>();
-            instance.AddComponent<NetworkObject>();
+            // NOTE: NetworkObject is NOT added automatically
+            // User must enable networking and click the button to add it
             
             GameObjectUtility.SetParentAndAlign(instance, menuCommand?.context as GameObject);
 
